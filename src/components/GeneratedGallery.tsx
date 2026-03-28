@@ -116,25 +116,31 @@ export function GeneratedGallery({ originalImage, images, onRetry }: GeneratedGa
                       alt={`Generated environment ${index + 1}`}
                       className="object-cover w-full h-full transition-transform duration-700 ease-out group-hover:scale-105"
                     />
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500 flex flex-col justify-between p-5">
+                    
+                    {/* Always visible download button */}
+                    <div className="absolute bottom-4 inset-x-4 z-20">
+                      <a
+                        href={img.url}
+                        download={`product-env-${index + 1}.png`}
+                        onClick={(e) => e.stopPropagation()}
+                        className="inline-flex items-center justify-center w-full px-4 py-2.5 bg-black/60 hover:bg-black/80 backdrop-blur-xl border border-white/20 text-white text-[10px] font-medium tracking-[0.2em] uppercase rounded-full transition-all duration-300 shadow-lg"
+                      >
+                        <Download className="w-3.5 h-3.5 mr-2" />
+                        Download
+                      </a>
+                    </div>
+
+                    {/* Hover overlay for prompt and maximize */}
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500 flex flex-col justify-between p-5 pointer-events-none">
                       <div className="flex justify-end">
-                        <div className="p-2 bg-white/10 backdrop-blur-md rounded-full text-white/80 hover:text-white transition-colors border border-white/10">
+                        <div className="p-2 bg-white/10 backdrop-blur-md rounded-full text-white/80 transition-colors border border-white/10">
                           <Maximize2 className="w-4 h-4" />
                         </div>
                       </div>
-                      <div>
-                        <p className="text-white/80 text-xs line-clamp-2 mb-4 font-light leading-relaxed">
+                      <div className="mb-10">
+                        <p className="text-white/90 text-xs line-clamp-3 font-light leading-relaxed drop-shadow-md">
                           {img.prompt}
                         </p>
-                        <a
-                          href={img.url}
-                          download={`product-env-${index + 1}.png`}
-                          onClick={(e) => e.stopPropagation()}
-                          className="inline-flex items-center justify-center w-full px-4 py-2.5 bg-white/10 hover:bg-white/20 backdrop-blur-xl border border-white/10 text-white text-[10px] font-medium tracking-[0.2em] uppercase rounded-full transition-all duration-300"
-                        >
-                          <Download className="w-3.5 h-3.5 mr-2" />
-                          Download
-                        </a>
                       </div>
                     </div>
                   </>

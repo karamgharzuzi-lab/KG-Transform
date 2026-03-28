@@ -2,8 +2,10 @@ import React, { useState, useCallback } from 'react';
 import { ImageUploader } from './components/ImageUploader';
 import { GeneratedGallery, GeneratedImage } from './components/GeneratedGallery';
 import { ProductColorChangePanel, ColorChangeConfig } from './components/ProductColorChangePanel';
+import { AuthModal } from './components/AuthModal';
+import { useAuth } from './contexts/AuthContext';
 import { generateProductImage } from './lib/gemini';
-import { Sparkles, RefreshCw, AlertCircle, Image as ImageIcon, Sparkle, Palette } from 'lucide-react';
+import { Sparkles, RefreshCw, AlertCircle, Image as ImageIcon, Sparkle, Palette, LogIn, LogOut, User } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 type AppState = 'idle' | 'selecting_mode' | 'configuring_color_change' | 'generating' | 'complete' | 'error';
@@ -67,6 +69,8 @@ export default function App() {
   const [originalImage, setOriginalImage] = useState<{ file: File; base64: string } | null>(null);
   const [generatedImages, setGeneratedImages] = useState<GeneratedImage[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const { user, signOut } = useAuth();
 
   const handleImageSelect = useCallback((file: File, base64: string) => {
     setOriginalImage({ file, base64 });
@@ -328,17 +332,45 @@ Constraints:
             </h1>
           </div>
           
-          {appState !== 'idle' && (
-            <button
-              onClick={handleReset}
-              className="inline-flex items-center px-4 py-2 text-xs font-medium text-white/80 glass-panel glass-panel-hover rounded-full transition-all duration-300"
-            >
-              <RefreshCw className="w-3 h-3 mr-2 opacity-70" />
-              Start Over
-            </button>
-          )}
+          <div className="flex items-center space-x-4">
+            {appState !== 'idle' && (
+              <button
+                onClick={handleReset}
+                className="inline-flex items-center px-4 py-2 text-xs font-medium text-white/80 glass-panel glass-panel-hover rounded-full transition-all duration-300"
+              >
+                <RefreshCw className="w-3 h-3 mr-2 opacity-70" />
+                Start Over
+              </button>
+            )}
+
+            {user ? (
+              <div className="flex items-center space-x-3">
+                <div className="hidden sm:flex items-center space-x-2 px-3 py-1.5 bg-white/5 border border-white/10 rounded-full text-xs font-light text-white/60">
+                  <User className="w-3 h-3" />
+                  <span className="truncate max-w-[120px]">{user.email}</span>
+                </div>
+                <button
+                  onClick={() => signOut()}
+                  className="inline-flex items-center p-2 text-white/60 hover:text-white/90 bg-white/5 hover:bg-white/10 border border-white/10 rounded-full transition-all duration-300"
+                  title="Sign Out"
+                >
+                  <LogOut className="w-4 h-4" />
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => setIsAuthModalOpen(true)}
+                className="inline-flex items-center px-4 py-2 text-xs font-medium text-white/90 bg-white/10 hover:bg-white/20 border border-white/20 rounded-full transition-all duration-300"
+              >
+                <LogIn className="w-3 h-3 mr-2" />
+                Sign In
+              </button>
+            )}
+          </div>
         </div>
       </header>
+
+      <AuthModal isOpen={isAuthModalOpen} onClose={() => setIsAuthModalOpen(false)} />
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-32 pb-12">
         <AnimatePresence mode="wait">
