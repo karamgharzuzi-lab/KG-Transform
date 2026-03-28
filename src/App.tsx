@@ -1,9 +1,18 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { ImageUploader } from './components/ImageUploader';
 import { GeneratedGallery, GeneratedImage } from './components/GeneratedGallery';
 import { generateProductImage } from './lib/gemini';
-import { Sparkles, RefreshCw, AlertCircle, Image as ImageIcon, Sparkle } from 'lucide-react';
+import { Sparkles, RefreshCw, AlertCircle, Image as ImageIcon, Sparkle, Key } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+
+declare global {
+  interface Window {
+    aistudio?: {
+      hasSelectedApiKey: () => Promise<boolean>;
+      openSelectKey: () => Promise<void>;
+    };
+  }
+}
 
 type AppState = 'idle' | 'selecting_mode' | 'generating' | 'complete' | 'error';
 
@@ -62,10 +71,32 @@ Strict Constraint: No color grading or saturation modifications allowed on the s
 ];
 
 export default function App() {
+  const [hasApiKey, setHasApiKey] = useState<boolean | null>(null);
   const [appState, setAppState] = useState<AppState>('idle');
   const [originalImage, setOriginalImage] = useState<{ file: File; base64: string } | null>(null);
   const [generatedImages, setGeneratedImages] = useState<GeneratedImage[]>([]);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const checkApiKey = async () => {
+      if (window.aistudio?.hasSelectedApiKey) {
+        const hasKey = await window.aistudio.hasSelectedApiKey();
+        setHasApiKey(hasKey);
+      } else {
+        // Fallback if running outside AI Studio
+        setHasApiKey(true);
+      }
+    };
+    checkApiKey();
+  }, []);
+
+  const handleSelectApiKey = async () => {
+    if (window.aistudio?.openSelectKey) {
+      await window.aistudio.openSelectKey();
+      // Assume success after dialog closes to prevent race conditions
+      setHasApiKey(true);
+    }
+  };
 
   const handleImageSelect = useCallback((file: File, base64: string) => {
     setOriginalImage({ file, base64 });
@@ -212,10 +243,10 @@ export default function App() {
       <header className="fixed top-0 w-full z-50 bg-black/20 backdrop-blur-2xl border-b border-white/5">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
           <div className="flex items-center space-x-3">
-            <div className="w-8 h-8 rounded-full border border-white/20 flex items-center justify-center bg-white/5">
-              <Sparkles className="w-4 h-4 text-white/80" />
+            <div className="w-8 h-8 rounded-full border border-[#39ff14]/30 flex items-center justify-center bg-[#39ff14]/10 shadow-[0_0_10px_rgba(57,255,20,0.2)]">
+              <Sparkles className="w-4 h-4 neon-green-icon" />
             </div>
-            <h1 className="text-sm font-medium tracking-[0.2em] uppercase text-white/90">
+            <h1 className="text-sm font-medium tracking-[0.2em] uppercase neon-green-text">
               KG Transform
             </h1>
           </div>
@@ -234,7 +265,44 @@ export default function App() {
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-32 pb-12">
         <AnimatePresence mode="wait">
-          {appState === 'idle' && (
+          {hasApiKey === false && (
+            <motion.div
+              key="api_key"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="flex flex-col items-center text-center max-w-2xl mx-auto"
+            >
+              <div className="w-16 h-16 rounded-full border border-white/20 flex items-center justify-center bg-white/5 mb-8 shadow-2xl">
+                <Key className="w-8 h-8 text-white/80" />
+              </div>
+              <h2 className="text-4xl md:text-5xl font-serif font-light tracking-tight text-white mb-6 leading-tight">
+                Connect Your API Key
+              </h2>
+              <p className="text-lg text-white/50 mb-8 font-light leading-relaxed tracking-wide">
+                To use the premium 4K image generation model, you need to provide your own Google Cloud API key.
+              </p>
+              
+              <div className="flex flex-col items-center space-y-4">
+                <button
+                  onClick={handleSelectApiKey}
+                  className="inline-flex items-center justify-center px-8 py-4 bg-white text-black text-xs font-medium tracking-[0.2em] uppercase rounded-full hover:bg-white/90 transition-colors shadow-xl"
+                >
+                  Select API Key
+                </button>
+                <a 
+                  href="https://ai.google.dev/gemini-api/docs/billing" 
+                  target="_blank" 
+                  rel="noopener noreferrer"
+                  className="text-xs text-white/40 hover:text-white/60 transition-colors underline underline-offset-4"
+                >
+                  Learn more about billing and API keys
+                </a>
+              </div>
+            </motion.div>
+          )}
+
+          {hasApiKey === true && appState === 'idle' && (
             <motion.div
               key="upload"
               initial={{ opacity: 0, y: 20 }}

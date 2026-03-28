@@ -1,14 +1,15 @@
 import { GoogleGenAI } from '@google/genai';
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 export async function generateProductImage(base64Image: string, mimeType: string, prompt: string, retries = 3): Promise<string> {
+  // Instantiate right before the call to pick up the latest API key from the environment
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || process.env.GEMINI_API_KEY });
+
   for (let attempt = 0; attempt < retries; attempt++) {
     try {
       const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash-image',
+        model: 'gemini-3.1-flash-image-preview',
         contents: {
           parts: [
             {

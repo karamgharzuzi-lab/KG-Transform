@@ -37,3 +37,32 @@ body {
   background: rgba(255, 255, 255, 0.06);
   border: 1px solid rgba(255, 255, 255, 0.1);
 }
+
+/* Neon Green Shine */
+@keyframes neon-shine-green {
+  0%, 100% {
+    text-shadow: 0 0 4px rgba(57, 255, 20, 0.4), 0 0 10px rgba(57, 255, 20, 0.6), 0 0 20px rgba(57, 255, 20, 0.4);
+  }
+  50% {
+    text-shadow: 0 0 4px rgba(57, 255, 20, 0.6), 0 0 12px rgba(57, 255, 20, 0.8), 0 0 25px rgba(57, 255, 20, 0.6);
+  }
+}
+
+.neon-green-text {
+  color: #39ff14;
+  animation: neon-shine-green 2s ease-in-out infinite;
+}
+
+@keyframes neon-shine-icon {
+  0%, 100% {
+    filter: drop-shadow(0 0 5px rgba(57, 255, 20, 0.5));
+  }
+  50% {
+    filter: drop-shadow(0 0 10px rgba(57, 255, 20, 0.8));
+  }
+}
+
+.neon-green-icon {
+  color: #39ff14;
+  animation: neon-shine-icon 2s ease-in-out infinite;
+}
