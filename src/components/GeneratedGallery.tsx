@@ -9,6 +9,7 @@ export interface GeneratedImage {
   status: 'pending' | 'generating' | 'complete' | 'error';
   error?: string;
   progress?: number;
+  resolution?: '1K' | '2K' | '4K';
 }
 
 interface GeneratedGalleryProps {
@@ -41,11 +42,11 @@ export function GeneratedGallery({ originalImage, images, onRetry }: GeneratedGa
           <h3 className="text-xs font-medium tracking-[0.2em] uppercase text-white/40 flex items-center">
             Original Product
           </h3>
-          <div className="relative aspect-square rounded-3xl overflow-hidden glass-panel shadow-2xl">
+          <div className="relative aspect-square rounded-3xl overflow-hidden glass-panel shadow-2xl bg-white/5">
             <img
               src={originalImage}
               alt="Original product"
-              className="object-contain w-full h-full p-4"
+              className="object-cover w-full h-full"
             />
           </div>
         </div>

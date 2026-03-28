@@ -1,20 +1,12 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback } from 'react';
 import { ImageUploader } from './components/ImageUploader';
 import { GeneratedGallery, GeneratedImage } from './components/GeneratedGallery';
+import { ProductColorChangePanel, ColorChangeConfig } from './components/ProductColorChangePanel';
 import { generateProductImage } from './lib/gemini';
-import { Sparkles, RefreshCw, AlertCircle, Image as ImageIcon, Sparkle, Key } from 'lucide-react';
+import { Sparkles, RefreshCw, AlertCircle, Image as ImageIcon, Sparkle, Palette } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
-declare global {
-  interface Window {
-    aistudio?: {
-      hasSelectedApiKey: () => Promise<boolean>;
-      openSelectKey: () => Promise<void>;
-    };
-  }
-}
-
-type AppState = 'idle' | 'selecting_mode' | 'generating' | 'complete' | 'error';
+type AppState = 'idle' | 'selecting_mode' | 'configuring_color_change' | 'generating' | 'complete' | 'error';
 
 const STAGING_BASE = `Task: Generate a professional, campaign-ready lifestyle photograph for a home decor product.Context: The setting is a minimalist, "bright and airy" environment featuring a "warm and cozy" color story centered on creams, tans, and soft neutrals. Depending on the product's scale, place it either on a clean, neutral studio pedestal or integrated into a sunlit lounge area. The atmosphere should feel premium and serene, lit by diffused, warm natural sunlight.Constraints: * Product Integrity: The home decor item must be the undisputed focal point. Maintain 100% accuracy regarding its original shape, texture (e.g., ceramic, wood, fabric), and colors. Any text, branding, or logos must be rendered exactly as they appear in the source with zero distortion or modification.
 
@@ -71,32 +63,10 @@ Strict Constraint: No color grading or saturation modifications allowed on the s
 ];
 
 export default function App() {
-  const [hasApiKey, setHasApiKey] = useState<boolean | null>(null);
   const [appState, setAppState] = useState<AppState>('idle');
   const [originalImage, setOriginalImage] = useState<{ file: File; base64: string } | null>(null);
   const [generatedImages, setGeneratedImages] = useState<GeneratedImage[]>([]);
   const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    const checkApiKey = async () => {
-      if (window.aistudio?.hasSelectedApiKey) {
-        const hasKey = await window.aistudio.hasSelectedApiKey();
-        setHasApiKey(hasKey);
-      } else {
-        // Fallback if running outside AI Studio
-        setHasApiKey(true);
-      }
-    };
-    checkApiKey();
-  }, []);
-
-  const handleSelectApiKey = async () => {
-    if (window.aistudio?.openSelectKey) {
-      await window.aistudio.openSelectKey();
-      // Assume success after dialog closes to prevent race conditions
-      setHasApiKey(true);
-    }
-  };
 
   const handleImageSelect = useCallback((file: File, base64: string) => {
     setOriginalImage({ file, base64 });
@@ -105,8 +75,13 @@ export default function App() {
     setGeneratedImages([]);
   }, []);
 
-  const handleModeSelect = useCallback(async (mode: 'staging' | 'beautifier') => {
+  const handleModeSelect = useCallback(async (mode: 'staging' | 'beautifier' | 'color_change') => {
     if (!originalImage) return;
+    
+    if (mode === 'color_change') {
+      setAppState('configuring_color_change');
+      return;
+    }
     
     setAppState('generating');
     setError(null);
@@ -134,7 +109,7 @@ export default function App() {
       setGeneratedImages(initialImages);
 
       const startTime = Date.now();
-      const expectedDuration = 6000;
+      const expectedDuration = 8000; // gemini-2.5-flash-image is much faster
 
       progressInterval = setInterval(() => {
         setGeneratedImages(current =>
@@ -145,30 +120,130 @@ export default function App() {
             return { ...img, progress: Math.max(img.progress || 0, simulatedProgress) };
           })
         );
-      }, 150);
+      }, 500);
 
-      for (let i = 0; i < initialImages.length; i++) {
-        const img = initialImages[i];
-        try {
-          // Add a 3-second delay between requests to help avoid rate limits
-          if (i > 0) {
-            await new Promise(resolve => setTimeout(resolve, 3000));
+      // Process in batches of 2 to respect API concurrency limits and prevent 503 errors
+      const CONCURRENCY_LIMIT = 2;
+      for (let i = 0; i < initialImages.length; i += CONCURRENCY_LIMIT) {
+        const batch = initialImages.slice(i, i + CONCURRENCY_LIMIT);
+        
+        await Promise.all(batch.map(async (img, batchIndex) => {
+          try {
+            // Slight stagger within the batch to avoid exact simultaneous hits
+            if (batchIndex > 0) await new Promise(resolve => setTimeout(resolve, 1000));
+            
+            const imageUrl = await generateProductImage(base64Data, mimeType, img.prompt);
+            setGeneratedImages(current => 
+              current.map(currentImg => 
+                currentImg.id === img.id 
+                  ? { ...currentImg, url: imageUrl, status: 'complete', progress: 100 } 
+                  : currentImg
+              )
+            );
+          } catch (err: any) {
+            console.error(`Failed to generate image ${img.id}:`, err);
+            setGeneratedImages(current => 
+              current.map(currentImg => 
+                currentImg.id === img.id 
+                  ? { ...currentImg, status: 'error', error: err.message || "Generation failed", progress: 0 } 
+                  : currentImg
+              )
+            );
           }
-          
-          const imageUrl = await generateProductImage(base64Data, mimeType, img.prompt);
-          setGeneratedImages(current => {
-            const newImages = [...current];
-            newImages[i] = { ...newImages[i], url: imageUrl, status: 'complete', progress: 100 };
-            return newImages;
-          });
-        } catch (err: any) {
-          console.error(`Failed to generate image ${i}:`, err);
-          setGeneratedImages(current => {
-            const newImages = [...current];
-            newImages[i] = { ...newImages[i], status: 'error', error: err.message || "Generation failed", progress: 0 };
-            return newImages;
-          });
-        }
+        }));
+      }
+
+      clearInterval(progressInterval);
+      setAppState('complete');
+    } catch (err: any) {
+      if (progressInterval) clearInterval(progressInterval);
+      console.error("Pipeline error:", err);
+      setError(err.message || "An error occurred during generation.");
+      setAppState('error');
+    }
+  }, [originalImage]);
+
+  const handleColorChangeSubmit = useCallback(async (config: ColorChangeConfig) => {
+    if (!originalImage) return;
+
+    setAppState('generating');
+    setError(null);
+
+    let progressInterval: NodeJS.Timeout | undefined;
+
+    try {
+      const mimeType = originalImage.file.type;
+      const base64Data = originalImage.base64.split(',')[1];
+
+      const prompt = `Task: High-precision masked recolor of a specific object in the image.
+Role: Expert Photo Retoucher and Material Artist.
+
+Target Object: ${config.targetObject}
+${config.currentColor ? `Current Color: ${config.currentColor}` : ''}
+New Color: ${config.newColor}
+Material/Finish: ${config.finish}
+
+Constraints:
+- Perform a flawless, pixel-perfect recolor of ONLY the "${config.targetObject}".
+- Preserve all original textures, shadows, highlights, reflections, and branding/logos.
+- Do NOT alter the background, lighting, or any neighboring objects.
+- The new color must look completely natural and photorealistic.
+- If a metallic or brushed finish is requested, render realistic surface behavior (e.g., anisotropic highlights for brushed metal, high specularity for chrome/gloss), not just a flat color overlay.
+- Maintain 100% fidelity to the original image's composition and non-target elements.`;
+
+      const initialImages: GeneratedImage[] = Array.from({ length: 4 }).map((_, index) => {
+        return {
+          id: `img-color-${index}`,
+          prompt: `${prompt}\n\nVariation ${index + 1}`,
+          url: null,
+          status: 'generating',
+          progress: 0
+        };
+      });
+      
+      setGeneratedImages(initialImages);
+
+      const startTime = Date.now();
+      const expectedDuration = 8000;
+
+      progressInterval = setInterval(() => {
+        setGeneratedImages(current =>
+          current.map(img => {
+            if (img.status !== 'generating') return img;
+            const elapsed = Date.now() - startTime;
+            const simulatedProgress = Math.min(95, Math.floor((elapsed / expectedDuration) * 90));
+            return { ...img, progress: Math.max(img.progress || 0, simulatedProgress) };
+          })
+        );
+      }, 500);
+
+      const CONCURRENCY_LIMIT = 2;
+      for (let i = 0; i < initialImages.length; i += CONCURRENCY_LIMIT) {
+        const batch = initialImages.slice(i, i + CONCURRENCY_LIMIT);
+        
+        await Promise.all(batch.map(async (img, batchIndex) => {
+          try {
+            if (batchIndex > 0) await new Promise(resolve => setTimeout(resolve, 1000));
+            
+            const imageUrl = await generateProductImage(base64Data, mimeType, img.prompt);
+            setGeneratedImages(current => 
+              current.map(currentImg => 
+                currentImg.id === img.id 
+                  ? { ...currentImg, url: imageUrl, status: 'complete', progress: 100 } 
+                  : currentImg
+              )
+            );
+          } catch (err: any) {
+            console.error(`Failed to generate image ${img.id}:`, err);
+            setGeneratedImages(current => 
+              current.map(currentImg => 
+                currentImg.id === img.id 
+                  ? { ...currentImg, status: 'error', error: err.message || "Generation failed", progress: 0 } 
+                  : currentImg
+              )
+            );
+          }
+        }));
       }
 
       clearInterval(progressInterval);
@@ -194,7 +269,9 @@ export default function App() {
     let promptToRetry = '';
     setGeneratedImages(current => {
       const img = current.find(i => i.id === id);
-      if (img) promptToRetry = img.prompt;
+      if (img) {
+        promptToRetry = img.prompt;
+      }
       return current.map(img =>
         img.id === id ? { ...img, status: 'generating', progress: 0, error: undefined } : img
       );
@@ -206,7 +283,7 @@ export default function App() {
     const base64Data = originalImage.base64.split(',')[1];
     
     const startTime = Date.now();
-    const expectedDuration = 6000;
+    const expectedDuration = 8000;
 
     const progressInterval = setInterval(() => {
       setGeneratedImages(current =>
@@ -217,7 +294,7 @@ export default function App() {
           return { ...img, progress: Math.max(img.progress || 0, simulatedProgress) };
         })
       );
-    }, 150);
+    }, 500);
 
     try {
       const imageUrl = await generateProductImage(base64Data, mimeType, promptToRetry);
@@ -265,44 +342,7 @@ export default function App() {
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-32 pb-12">
         <AnimatePresence mode="wait">
-          {hasApiKey === false && (
-            <motion.div
-              key="api_key"
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              className="flex flex-col items-center text-center max-w-2xl mx-auto"
-            >
-              <div className="w-16 h-16 rounded-full border border-white/20 flex items-center justify-center bg-white/5 mb-8 shadow-2xl">
-                <Key className="w-8 h-8 text-white/80" />
-              </div>
-              <h2 className="text-4xl md:text-5xl font-serif font-light tracking-tight text-white mb-6 leading-tight">
-                Connect Your API Key
-              </h2>
-              <p className="text-lg text-white/50 mb-8 font-light leading-relaxed tracking-wide">
-                To use the premium 4K image generation model, you need to provide your own Google Cloud API key.
-              </p>
-              
-              <div className="flex flex-col items-center space-y-4">
-                <button
-                  onClick={handleSelectApiKey}
-                  className="inline-flex items-center justify-center px-8 py-4 bg-white text-black text-xs font-medium tracking-[0.2em] uppercase rounded-full hover:bg-white/90 transition-colors shadow-xl"
-                >
-                  Select API Key
-                </button>
-                <a 
-                  href="https://ai.google.dev/gemini-api/docs/billing" 
-                  target="_blank" 
-                  rel="noopener noreferrer"
-                  className="text-xs text-white/40 hover:text-white/60 transition-colors underline underline-offset-4"
-                >
-                  Learn more about billing and API keys
-                </a>
-              </div>
-            </motion.div>
-          )}
-
-          {hasApiKey === true && appState === 'idle' && (
+          {appState === 'idle' && (
             <motion.div
               key="upload"
               initial={{ opacity: 0, y: 20 }}
@@ -314,7 +354,7 @@ export default function App() {
                 Transform your product.
               </h2>
               <p className="text-lg text-white/50 mb-12 max-w-2xl font-light leading-relaxed tracking-wide">
-                Upload your product and let us bring it to life
+                Upload your product for an instant professional makeover
               </p>
               
               <ImageUploader onImageSelect={handleImageSelect} />
@@ -336,7 +376,7 @@ export default function App() {
                 Select how you want to transform your product image.
               </p>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 w-full">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 w-full">
                 <button
                   onClick={() => handleModeSelect('staging')}
                   className="group relative flex flex-col items-start p-8 glass-panel glass-panel-hover rounded-3xl transition-all duration-500 text-left overflow-hidden"
@@ -364,8 +404,30 @@ export default function App() {
                     High-end photorealistic commercial rendering on polished Calacatta marble with luxurious studio lighting.
                   </p>
                 </button>
+
+                <button
+                  onClick={() => handleModeSelect('color_change')}
+                  className="group relative flex flex-col items-start p-8 glass-panel glass-panel-hover rounded-3xl transition-all duration-500 text-left overflow-hidden"
+                >
+                  <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
+                  <div className="bg-white/5 border border-white/10 p-4 rounded-2xl mb-6 group-hover:scale-110 transition-transform duration-500">
+                    <Palette className="w-6 h-6 text-white/80" />
+                  </div>
+                  <h3 className="text-xl font-medium text-white/90 mb-3 tracking-wide">Product Color Change</h3>
+                  <p className="text-white/50 font-light leading-relaxed text-sm">
+                    High-precision masked recolor of specific objects, preserving textures, reflections, and realism.
+                  </p>
+                </button>
               </div>
             </motion.div>
+          )}
+
+          {appState === 'configuring_color_change' && originalImage && (
+            <ProductColorChangePanel 
+              originalImage={originalImage}
+              onGenerate={handleColorChangeSubmit} 
+              onCancel={() => setAppState('selecting_mode')} 
+            />
           )}
 
           {(appState === 'generating' || appState === 'complete') && originalImage && (
