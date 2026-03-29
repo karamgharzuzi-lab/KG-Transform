@@ -289,6 +289,41 @@ export function ProductColorChangePanel({ originalImage, onGenerate, onCancel }:
 
             {/* Active Group Colors Grid */}
             <div className="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 gap-3 pt-2 max-h-[30vh] overflow-y-auto pr-2 custom-scrollbar">
+              {/* Custom Color Picker */}
+              <div 
+                className={`group relative flex flex-col items-center p-2 rounded-xl border transition-all duration-300 ${
+                  newColor.startsWith('#') 
+                    ? 'bg-white/10 border-white/40 shadow-[0_0_15px_rgba(255,255,255,0.1)]' 
+                    : 'bg-white/5 border-white/5 hover:bg-white/10 hover:border-white/20'
+                }`}
+              >
+                <div className="w-10 h-10 rounded-full mb-2 shadow-inner relative overflow-hidden ring-1 ring-white/20">
+                  <input
+                    type="color"
+                    value={newColor.startsWith('#') ? newColor : '#ffffff'}
+                    onChange={(e) => setNewColor(e.target.value)}
+                    className="absolute inset-[-50%] w-[200%] h-[200%] cursor-pointer opacity-0 z-10"
+                    title="Choose custom color"
+                  />
+                  <div 
+                    className="absolute inset-0 pointer-events-none"
+                    style={{ backgroundColor: newColor.startsWith('#') ? newColor : 'transparent' }}
+                  >
+                    {!newColor.startsWith('#') && (
+                      <div className="w-full h-full bg-gradient-to-br from-red-500 via-green-500 to-blue-500 opacity-50" />
+                    )}
+                  </div>
+                  {newColor.startsWith('#') && (
+                    <div className="absolute inset-0 flex items-center justify-center bg-black/20 pointer-events-none">
+                      <Check className="w-5 h-5 text-white drop-shadow-md" />
+                    </div>
+                  )}
+                </div>
+                <span className="text-[10px] text-center text-white/70 group-hover:text-white/90 leading-tight">
+                  Custom
+                </span>
+              </div>
+
               {COLOR_GROUPS.find(g => g.name === activeColorGroup)?.colors.map((color) => {
                 const isSelected = newColor === color.name;
                 

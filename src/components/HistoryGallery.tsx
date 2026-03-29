@@ -9,7 +9,7 @@ interface HistoryItem {
   created_at: string;
   prompt: string;
   image_url: string;
-  original_image_url: string;
+  original_image_url?: string;
   mode: string;
 }
 
@@ -26,8 +26,9 @@ export function HistoryGallery() {
       try {
         const { data, error } = await supabase
           .from('generated_images')
-          .select('*')
-          .order('created_at', { ascending: false });
+          .select('id, created_at, prompt, image_url, mode')
+          .order('created_at', { ascending: false })
+          .limit(50);
 
         if (error) throw error;
         setItems(data || []);

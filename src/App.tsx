@@ -6,7 +6,7 @@ import { AuthModal } from './components/AuthModal';
 import { HistoryGallery } from './components/HistoryGallery';
 import { useAuth } from './contexts/AuthContext';
 import { generateProductImage } from './lib/gemini';
-import { Sparkles, RefreshCw, AlertCircle, Image as ImageIcon, Sparkle, Palette, LogIn, LogOut, User, History } from 'lucide-react';
+import { Sparkles, RefreshCw, AlertCircle, Image as ImageIcon, Sparkle, Palette, LogIn, LogOut, User, History, Key } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 type AppState = 'idle' | 'uploading_image' | 'configuring_color_change' | 'generating' | 'complete' | 'error';
@@ -74,7 +74,28 @@ export default function App() {
   const [generatedImages, setGeneratedImages] = useState<GeneratedImage[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const [hasApiKey, setHasApiKey] = useState<boolean | null>(null);
+  const [selectedAspectRatio, setSelectedAspectRatio] = useState<string>('1:1');
   const { user, signOut } = useAuth();
+
+  React.useEffect(() => {
+    const checkApiKey = async () => {
+      if (window.aistudio && window.aistudio.hasSelectedApiKey) {
+        const hasKey = await window.aistudio.hasSelectedApiKey();
+        setHasApiKey(hasKey);
+      } else {
+        setHasApiKey(true); // Fallback if not in AI Studio
+      }
+    };
+    checkApiKey();
+  }, []);
+
+  const handleSelectApiKey = async () => {
+    if (window.aistudio && window.aistudio.openSelectKey) {
+      await window.aistudio.openSelectKey();
+      setHasApiKey(true); // Assume success to avoid race condition
+    }
+  };
 
   const handleModeSelect = useCallback((mode: 'staging' | 'beautifier' | 'color_change') => {
     setSelectedMode(mode);
@@ -128,7 +149,7 @@ export default function App() {
       setGeneratedImages(initialImages);
 
       const startTime = Date.now();
-      const expectedDuration = 8000; // gemini-2.5-flash-image is much faster
+      const expectedDuration = 12000;
 
       progressInterval = setInterval(() => {
         setGeneratedImages(current =>
@@ -141,17 +162,15 @@ export default function App() {
         );
       }, 500);
 
-      // Process in batches of 2 to respect API concurrency limits and prevent 503 errors
-      const CONCURRENCY_LIMIT = 2;
+      const CONCURRENCY_LIMIT = 4;
       for (let i = 0; i < initialImages.length; i += CONCURRENCY_LIMIT) {
         const batch = initialImages.slice(i, i + CONCURRENCY_LIMIT);
         
         await Promise.all(batch.map(async (img, batchIndex) => {
           try {
-            // Slight stagger within the batch to avoid exact simultaneous hits
-            if (batchIndex > 0) await new Promise(resolve => setTimeout(resolve, 1000));
+            if (batchIndex > 0) await new Promise(resolve => setTimeout(resolve, 500 * batchIndex));
             
-            const imageUrl = await generateProductImage(base64Data, mimeType, img.prompt);
+            const imageUrl = await generateProductImage(base64Data, mimeType, img.prompt, selectedAspectRatio);
             
             // Save to Supabase
             try {
@@ -243,7 +262,7 @@ Constraints:
       setGeneratedImages(initialImages);
 
       const startTime = Date.now();
-      const expectedDuration = 8000;
+      const expectedDuration = 12000;
 
       progressInterval = setInterval(() => {
         setGeneratedImages(current =>
@@ -256,15 +275,15 @@ Constraints:
         );
       }, 500);
 
-      const CONCURRENCY_LIMIT = 2;
+      const CONCURRENCY_LIMIT = 4;
       for (let i = 0; i < initialImages.length; i += CONCURRENCY_LIMIT) {
         const batch = initialImages.slice(i, i + CONCURRENCY_LIMIT);
         
         await Promise.all(batch.map(async (img, batchIndex) => {
           try {
-            if (batchIndex > 0) await new Promise(resolve => setTimeout(resolve, 1000));
+            if (batchIndex > 0) await new Promise(resolve => setTimeout(resolve, 500 * batchIndex));
             
-            const imageUrl = await generateProductImage(base64Data, mimeType, img.prompt);
+            const imageUrl = await generateProductImage(base64Data, mimeType, img.prompt, selectedAspectRatio);
             
             // Save to Supabase
             try {
@@ -352,7 +371,7 @@ Constraints:
     }, 500);
 
     try {
-      const imageUrl = await generateProductImage(base64Data, mimeType, promptToRetry);
+      const imageUrl = await generateProductImage(base64Data, mimeType, promptToRetry, selectedAspectRatio);
       
       // Save to Supabase
       if (user) {
@@ -386,6 +405,29 @@ Constraints:
       clearInterval(progressInterval);
     }
   }, [originalImage]);
+
+  if (hasApiKey === false) {
+    return (
+      <div className="min-h-screen atmosphere-bg text-white font-sans flex items-center justify-center p-4">
+        <div className="max-w-md w-full glass-panel p-8 rounded-3xl text-center">
+          <div className="w-16 h-16 mx-auto bg-white/10 rounded-full flex items-center justify-center mb-6">
+            <Key className="w-8 h-8 text-white/80" />
+          </div>
+          <h2 className="text-2xl font-serif font-light mb-4">API Key Required</h2>
+          <p className="text-white/60 text-sm mb-8 leading-relaxed">
+            To use the advanced image generation features, please select your Gemini API key.
+            You can find more information about billing <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" rel="noreferrer" className="text-blue-400 hover:underline">here</a>.
+          </p>
+          <button
+            onClick={handleSelectApiKey}
+            className="w-full py-3 px-6 bg-white text-black rounded-full font-medium hover:bg-white/90 transition-colors"
+          >
+            Select API Key
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen atmosphere-bg text-white font-sans selection:bg-white/20">
@@ -481,15 +523,17 @@ Constraints:
                     onClick={() => handleModeSelect('staging')}
                     className="group relative flex flex-col items-start p-8 glass-panel glass-panel-hover rounded-3xl transition-all duration-500 text-left overflow-hidden"
                   >
+                    <img src="https://images.unsplash.com/photo-1618220179428-22790b46a0eb?auto=format&fit=crop&q=80&w=800" alt="Staging background" className="absolute inset-0 w-full h-full object-cover opacity-10 blur-sm group-hover:opacity-20 group-hover:scale-105 transition-all duration-700" referrerPolicy="no-referrer" />
+                    <div className="absolute inset-0 bg-gradient-to-br from-black/60 to-transparent" />
                     <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
-                    <div className="bg-white/5 border border-white/10 p-4 rounded-2xl mb-6 group-hover:scale-110 transition-transform duration-500">
+                    <div className="relative z-10 bg-white/5 border border-white/10 p-4 rounded-2xl mb-6 group-hover:scale-110 transition-transform duration-500">
                       <ImageIcon className="w-6 h-6 text-white/80" />
                     </div>
-                    <h3 className="text-xl font-medium text-white/90 mb-3 tracking-wide">Product Staging</h3>
-                    <p className="text-white/50 font-light leading-relaxed text-sm">
+                    <h3 className="relative z-10 text-xl font-medium text-white/90 mb-3 tracking-wide">Product Staging</h3>
+                    <p className="relative z-10 text-white/50 font-light leading-relaxed text-sm">
                       Campaign-ready lifestyle photograph in a bright, airy, and minimalist environment with warm and cozy neutrals.
                     </p>
-                    <p className="mt-4 h-5 text-sm font-medium text-[#D4AF37] drop-shadow-[0_0_10px_rgba(212,175,55,0.8)]">
+                    <p className="relative z-10 mt-4 h-5 text-sm font-medium text-[#D4AF37] drop-shadow-[0_0_10px_rgba(212,175,55,0.8)]">
                       Professional Environment
                     </p>
                   </button>
@@ -498,15 +542,17 @@ Constraints:
                     onClick={() => handleModeSelect('beautifier')}
                     className="group relative flex flex-col items-start p-8 glass-panel glass-panel-hover rounded-3xl transition-all duration-500 text-left overflow-hidden"
                   >
+                    <img src="https://images.unsplash.com/photo-1600607686527-6fb886090705?auto=format&fit=crop&q=80&w=800" alt="Beautifier background" className="absolute inset-0 w-full h-full object-cover opacity-10 blur-sm group-hover:opacity-20 group-hover:scale-105 transition-all duration-700" referrerPolicy="no-referrer" />
+                    <div className="absolute inset-0 bg-gradient-to-br from-black/60 to-transparent" />
                     <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
-                    <div className="bg-white/5 border border-white/10 p-4 rounded-2xl mb-6 group-hover:scale-110 transition-transform duration-500">
+                    <div className="relative z-10 bg-white/5 border border-white/10 p-4 rounded-2xl mb-6 group-hover:scale-110 transition-transform duration-500">
                       <Sparkle className="w-6 h-6 text-white/80" />
                     </div>
-                    <h3 className="text-xl font-medium text-white/90 mb-3 tracking-wide">Product Beautifier</h3>
-                    <p className="text-white/50 font-light leading-relaxed text-sm">
+                    <h3 className="relative z-10 text-xl font-medium text-white/90 mb-3 tracking-wide">Product Beautifier</h3>
+                    <p className="relative z-10 text-white/50 font-light leading-relaxed text-sm">
                       High-end photorealistic commercial rendering on polished Calacatta marble with luxurious studio lighting.
                     </p>
-                    <p className="mt-4 h-5 text-sm font-medium text-[#D4AF37] drop-shadow-[0_0_10px_rgba(212,175,55,0.8)]">
+                    <p className="relative z-10 mt-4 h-5 text-sm font-medium text-[#D4AF37] drop-shadow-[0_0_10px_rgba(212,175,55,0.8)]">
                       Clean Environment
                     </p>
                   </button>
@@ -515,15 +561,17 @@ Constraints:
                     onClick={() => handleModeSelect('color_change')}
                     className="group relative flex flex-col items-start p-8 glass-panel glass-panel-hover rounded-3xl transition-all duration-500 text-left overflow-hidden"
                   >
+                    <img src="https://images.unsplash.com/photo-1550684848-fac1c5b4e853?auto=format&fit=crop&q=80&w=800" alt="Color Change background" className="absolute inset-0 w-full h-full object-cover opacity-10 blur-sm group-hover:opacity-20 group-hover:scale-105 transition-all duration-700" referrerPolicy="no-referrer" />
+                    <div className="absolute inset-0 bg-gradient-to-br from-black/60 to-transparent" />
                     <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
-                    <div className="bg-white/5 border border-white/10 p-4 rounded-2xl mb-6 group-hover:scale-110 transition-transform duration-500">
+                    <div className="relative z-10 bg-white/5 border border-white/10 p-4 rounded-2xl mb-6 group-hover:scale-110 transition-transform duration-500">
                       <Palette className="w-6 h-6 text-white/80" />
                     </div>
-                    <h3 className="text-xl font-medium text-white/90 mb-3 tracking-wide">Product Color Change</h3>
-                    <p className="text-white/50 font-light leading-relaxed text-sm">
+                    <h3 className="relative z-10 text-xl font-medium text-white/90 mb-3 tracking-wide">Product Color Change</h3>
+                    <p className="relative z-10 text-white/50 font-light leading-relaxed text-sm">
                       High-precision masked recolor of specific objects, preserving textures, reflections, and realism.
                     </p>
-                    <p className="mt-4 h-5 text-sm font-medium text-[#D4AF37] drop-shadow-[0_0_10px_rgba(212,175,55,0.8)]">
+                    <p className="relative z-10 mt-4 h-5 text-sm font-medium text-[#D4AF37] drop-shadow-[0_0_10px_rgba(212,175,55,0.8)]">
                       Colorful Choices
                     </p>
                   </button>
@@ -542,9 +590,34 @@ Constraints:
                 <h2 className="text-4xl md:text-5xl font-serif font-light tracking-tight text-white mb-4">
                   Upload your product
                 </h2>
-                <p className="text-white/50 mb-12 font-light tracking-wide">
+                <p className="text-white/50 mb-8 font-light tracking-wide">
                   Provide a clear image of your product to apply the selected style.
                 </p>
+
+                <div className="w-full max-w-2xl mb-12 text-left">
+                  <h3 className="text-lg font-medium text-white/90 mb-4">Select Aspect Ratio</h3>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                    {[
+                      { value: '9:16', label: '9:16', useCase: 'Instagram Story, Reels, TikTok' },
+                      { value: '1:1', label: '1:1', useCase: 'Instagram Post, Profile Picture' },
+                      { value: '3:4', label: '4:5', useCase: 'Instagram Portrait' },
+                      { value: '16:9', label: '16:9', useCase: 'YouTube, Widescreen Web' }
+                    ].map((ratio) => (
+                      <button
+                        key={ratio.value}
+                        onClick={() => setSelectedAspectRatio(ratio.value)}
+                        className={`p-4 rounded-2xl border transition-all duration-300 flex flex-col items-center text-center ${
+                          selectedAspectRatio === ratio.value
+                            ? 'bg-white/10 border-white/30 shadow-[0_0_15px_rgba(255,255,255,0.1)]'
+                            : 'bg-white/5 border-white/10 hover:bg-white/10'
+                        }`}
+                      >
+                        <span className="text-lg font-medium text-white mb-2">{ratio.label}</span>
+                        <span className="text-[10px] text-white/50 uppercase tracking-wider leading-relaxed">{ratio.useCase}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
                 
                 <ImageUploader onImageSelect={handleImageSelect} />
               </motion.div>

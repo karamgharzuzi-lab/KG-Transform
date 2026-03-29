@@ -55,7 +55,7 @@ export async function analyzeImageForRecoloring(base64Image: string, mimeType: s
   }
 }
 
-export async function generateProductImage(base64Image: string, mimeType: string, prompt: string, retries = 5): Promise<string> {
+export async function generateProductImage(base64Image: string, mimeType: string, prompt: string, aspectRatio: string = '1:1', retries = 2): Promise<string> {
   // Instantiate right before the call to pick up the latest API key from the environment.
   // We use process.env.API_KEY first (which is the user's selected key if they connected one),
   // and fall back to the default GEMINI_API_KEY.
@@ -64,7 +64,7 @@ export async function generateProductImage(base64Image: string, mimeType: string
   for (let attempt = 0; attempt < retries; attempt++) {
     try {
       const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash-image',
+        model: 'gemini-3.1-flash-image-preview',
         contents: {
           parts: [
             {
@@ -77,6 +77,12 @@ export async function generateProductImage(base64Image: string, mimeType: string
               text: prompt,
             },
           ],
+        },
+        config: {
+          imageConfig: {
+            aspectRatio: aspectRatio,
+            imageSize: "1K"
+          }
         }
       });
       
@@ -89,8 +95,8 @@ export async function generateProductImage(base64Image: string, mimeType: string
     } catch (error: any) {
       const isRetryable = error?.status === 429 || error?.status === 503 || error?.message?.includes('429') || error?.message?.includes('503') || error?.message?.includes('quota') || error?.message?.includes('RESOURCE_EXHAUSTED') || error?.message?.includes('UNAVAILABLE');
       if (isRetryable && attempt < retries - 1) {
-        // Exponential backoff: 4s, 8s, 16s, 32s
-        const backoffTime = Math.pow(2, attempt) * 4000;
+        // Exponential backoff: 2s
+        const backoffTime = 2000;
         console.warn(`API busy or rate limit hit. Retrying in ${backoffTime}ms... (Attempt ${attempt + 1} of ${retries})`);
         await delay(backoffTime);
         continue;
