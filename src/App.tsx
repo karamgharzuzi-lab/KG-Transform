@@ -3,12 +3,14 @@ import { ImageUploader } from './components/ImageUploader';
 import { GeneratedGallery, GeneratedImage } from './components/GeneratedGallery';
 import { ProductColorChangePanel, ColorChangeConfig } from './components/ProductColorChangePanel';
 import { AuthModal } from './components/AuthModal';
+import { HistoryGallery } from './components/HistoryGallery';
 import { useAuth } from './contexts/AuthContext';
 import { generateProductImage } from './lib/gemini';
-import { Sparkles, RefreshCw, AlertCircle, Image as ImageIcon, Sparkle, Palette, LogIn, LogOut, User } from 'lucide-react';
+import { Sparkles, RefreshCw, AlertCircle, Image as ImageIcon, Sparkle, Palette, LogIn, LogOut, User, History } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
-type AppState = 'idle' | 'selecting_mode' | 'configuring_color_change' | 'generating' | 'complete' | 'error';
+type AppState = 'idle' | 'uploading_image' | 'configuring_color_change' | 'generating' | 'complete' | 'error';
+type ViewState = 'create' | 'history';
 
 const STAGING_BASE = `Task: Generate a professional, campaign-ready lifestyle photograph for a home decor product.Context: The setting is a minimalist, "bright and airy" environment featuring a "warm and cozy" color story centered on creams, tans, and soft neutrals. Depending on the product's scale, place it either on a clean, neutral studio pedestal or integrated into a sunlit lounge area. The atmosphere should feel premium and serene, lit by diffused, warm natural sunlight.Constraints: * Product Integrity: The home decor item must be the undisputed focal point. Maintain 100% accuracy regarding its original shape, texture (e.g., ceramic, wood, fabric), and colors. Any text, branding, or logos must be rendered exactly as they appear in the source with zero distortion or modification.
 
@@ -66,38 +68,51 @@ Strict Constraint: No color grading or saturation modifications allowed on the s
 
 export default function App() {
   const [appState, setAppState] = useState<AppState>('idle');
+  const [view, setView] = useState<ViewState>('create');
+  const [selectedMode, setSelectedMode] = useState<'staging' | 'beautifier' | 'color_change' | null>(null);
   const [originalImage, setOriginalImage] = useState<{ file: File; base64: string } | null>(null);
   const [generatedImages, setGeneratedImages] = useState<GeneratedImage[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const { user, signOut } = useAuth();
 
-  const handleImageSelect = useCallback((file: File, base64: string) => {
+  const handleModeSelect = useCallback((mode: 'staging' | 'beautifier' | 'color_change') => {
+    setSelectedMode(mode);
+    if (!user) {
+      setIsAuthModalOpen(true);
+      return;
+    }
+    setAppState('uploading_image');
+  }, [user]);
+
+  React.useEffect(() => {
+    if (user && selectedMode && appState === 'idle') {
+      setAppState('uploading_image');
+    }
+  }, [user, selectedMode, appState]);
+
+  const handleImageSelect = useCallback(async (file: File, base64: string) => {
     setOriginalImage({ file, base64 });
-    setAppState('selecting_mode');
     setError(null);
     setGeneratedImages([]);
-  }, []);
 
-  const handleModeSelect = useCallback(async (mode: 'staging' | 'beautifier' | 'color_change') => {
-    if (!originalImage) return;
-    
-    if (mode === 'color_change') {
+    if (!selectedMode) return;
+
+    if (selectedMode === 'color_change') {
       setAppState('configuring_color_change');
       return;
     }
-    
+
     setAppState('generating');
-    setError(null);
 
     let progressInterval: NodeJS.Timeout | undefined;
 
     try {
-      const mimeType = originalImage.file.type;
-      const base64Data = originalImage.base64.split(',')[1];
+      const mimeType = file.type;
+      const base64Data = base64.split(',')[1];
 
       const initialImages: GeneratedImage[] = Array.from({ length: 4 }).map((_, index) => {
-        const prompt = mode === 'staging' 
+        const prompt = selectedMode === 'staging' 
           ? `${STAGING_BASE}\n\nVariation ${index + 1}`
           : BEAUTIFIER_PROMPTS[index];
           
@@ -137,6 +152,21 @@ export default function App() {
             if (batchIndex > 0) await new Promise(resolve => setTimeout(resolve, 1000));
             
             const imageUrl = await generateProductImage(base64Data, mimeType, img.prompt);
+            
+            // Save to Supabase
+            try {
+              const { supabase } = await import('./lib/supabase');
+              await supabase.from('generated_images').insert({
+                prompt: img.prompt,
+                image_url: imageUrl,
+                original_image_url: base64,
+                mode: selectedMode,
+                user_id: user?.id
+              });
+            } catch (saveErr) {
+              console.error("Failed to save to Supabase:", saveErr);
+            }
+
             setGeneratedImages(current => 
               current.map(currentImg => 
                 currentImg.id === img.id 
@@ -165,10 +195,15 @@ export default function App() {
       setError(err.message || "An error occurred during generation.");
       setAppState('error');
     }
-  }, [originalImage]);
+  }, [selectedMode, user]);
 
   const handleColorChangeSubmit = useCallback(async (config: ColorChangeConfig) => {
     if (!originalImage) return;
+
+    if (!user) {
+      setIsAuthModalOpen(true);
+      return;
+    }
 
     setAppState('generating');
     setError(null);
@@ -230,6 +265,21 @@ Constraints:
             if (batchIndex > 0) await new Promise(resolve => setTimeout(resolve, 1000));
             
             const imageUrl = await generateProductImage(base64Data, mimeType, img.prompt);
+            
+            // Save to Supabase
+            try {
+              const { supabase } = await import('./lib/supabase');
+              await supabase.from('generated_images').insert({
+                prompt: img.prompt,
+                image_url: imageUrl,
+                original_image_url: originalImage.base64,
+                mode: 'color_change',
+                user_id: user.id
+              });
+            } catch (saveErr) {
+              console.error("Failed to save to Supabase:", saveErr);
+            }
+
             setGeneratedImages(current => 
               current.map(currentImg => 
                 currentImg.id === img.id 
@@ -258,10 +308,11 @@ Constraints:
       setError(err.message || "An error occurred during generation.");
       setAppState('error');
     }
-  }, [originalImage]);
+  }, [originalImage, user]);
 
   const handleReset = () => {
     setAppState('idle');
+    setSelectedMode(null);
     setOriginalImage(null);
     setGeneratedImages([]);
     setError(null);
@@ -302,6 +353,23 @@ Constraints:
 
     try {
       const imageUrl = await generateProductImage(base64Data, mimeType, promptToRetry);
+      
+      // Save to Supabase
+      if (user) {
+        try {
+          const { supabase } = await import('./lib/supabase');
+          await supabase.from('generated_images').insert({
+            prompt: promptToRetry,
+            image_url: imageUrl,
+            original_image_url: originalImage.base64,
+            mode: 'retry',
+            user_id: user.id
+          });
+        } catch (saveErr) {
+          console.error("Failed to save retry to Supabase:", saveErr);
+        }
+      }
+
       setGeneratedImages(current =>
         current.map(img =>
           img.id === id ? { ...img, url: imageUrl, status: 'complete', progress: 100 } : img
@@ -333,7 +401,7 @@ Constraints:
           </div>
           
           <div className="flex items-center space-x-4">
-            {appState !== 'idle' && (
+            {appState !== 'idle' && view === 'create' && (
               <button
                 onClick={handleReset}
                 className="inline-flex items-center px-4 py-2 text-xs font-medium text-white/80 glass-panel glass-panel-hover rounded-full transition-all duration-300"
@@ -345,6 +413,22 @@ Constraints:
 
             {user ? (
               <div className="flex items-center space-x-3">
+                <button
+                  onClick={() => setView(view === 'create' ? 'history' : 'create')}
+                  className="hidden sm:flex items-center space-x-2 px-4 py-1.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-full text-xs font-light text-white/80 transition-all duration-300"
+                >
+                  {view === 'create' ? (
+                    <>
+                      <History className="w-3.5 h-3.5" />
+                      <span>History</span>
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="w-3.5 h-3.5" />
+                      <span>Create</span>
+                    </>
+                  )}
+                </button>
                 <div className="hidden sm:flex items-center space-x-2 px-3 py-1.5 bg-white/5 border border-white/10 rounded-full text-xs font-light text-white/60">
                   <User className="w-3 h-3" />
                   <span className="truncate max-w-[120px]">{user.email}</span>
@@ -373,86 +457,98 @@ Constraints:
       <AuthModal isOpen={isAuthModalOpen} onClose={() => setIsAuthModalOpen(false)} />
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-32 pb-12">
-        <AnimatePresence mode="wait">
-          {appState === 'idle' && (
-            <motion.div
-              key="upload"
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              className="flex flex-col items-center text-center max-w-3xl mx-auto"
-            >
-              <h2 className="text-5xl md:text-7xl font-serif font-light tracking-tight text-white mb-6 leading-tight">
-                Transform your product.
-              </h2>
-              <p className="text-lg text-white/50 mb-12 max-w-2xl font-light leading-relaxed tracking-wide">
-                Upload your product for an instant professional makeover
-              </p>
-              
-              <ImageUploader onImageSelect={handleImageSelect} />
-            </motion.div>
-          )}
+        {view === 'history' ? (
+          <HistoryGallery />
+        ) : (
+          <AnimatePresence mode="wait">
+            {appState === 'idle' && (
+              <motion.div
+                key="selecting_mode"
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.95 }}
+                className="flex flex-col items-center max-w-4xl mx-auto"
+              >
+                <h2 className="text-5xl md:text-7xl font-serif font-light tracking-tight text-white mb-6 leading-tight text-center">
+                  Transform your product.
+                </h2>
+                <p className="text-lg text-white/50 mb-12 max-w-2xl font-light leading-relaxed tracking-wide text-center">
+                  choose your style for an instant professional makeover
+                </p>
 
-          {appState === 'selecting_mode' && originalImage && (
-            <motion.div
-              key="selecting_mode"
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              className="flex flex-col items-center max-w-4xl mx-auto"
-            >
-              <h2 className="text-4xl md:text-5xl font-serif font-light tracking-tight text-white mb-4">
-                Choose a Style
-              </h2>
-              <p className="text-white/50 mb-12 font-light tracking-wide">
-                Select how you want to transform your product image.
-              </p>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 w-full">
+                  <button
+                    onClick={() => handleModeSelect('staging')}
+                    className="group relative flex flex-col items-start p-8 glass-panel glass-panel-hover rounded-3xl transition-all duration-500 text-left overflow-hidden"
+                  >
+                    <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
+                    <div className="bg-white/5 border border-white/10 p-4 rounded-2xl mb-6 group-hover:scale-110 transition-transform duration-500">
+                      <ImageIcon className="w-6 h-6 text-white/80" />
+                    </div>
+                    <h3 className="text-xl font-medium text-white/90 mb-3 tracking-wide">Product Staging</h3>
+                    <p className="text-white/50 font-light leading-relaxed text-sm">
+                      Campaign-ready lifestyle photograph in a bright, airy, and minimalist environment with warm and cozy neutrals.
+                    </p>
+                    <p className="mt-4 h-5 text-sm font-medium text-[#D4AF37] drop-shadow-[0_0_10px_rgba(212,175,55,0.8)]">
+                      Professional Environment
+                    </p>
+                  </button>
 
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 w-full">
-                <button
-                  onClick={() => handleModeSelect('staging')}
-                  className="group relative flex flex-col items-start p-8 glass-panel glass-panel-hover rounded-3xl transition-all duration-500 text-left overflow-hidden"
-                >
-                  <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
-                  <div className="bg-white/5 border border-white/10 p-4 rounded-2xl mb-6 group-hover:scale-110 transition-transform duration-500">
-                    <ImageIcon className="w-6 h-6 text-white/80" />
-                  </div>
-                  <h3 className="text-xl font-medium text-white/90 mb-3 tracking-wide">Product Staging</h3>
-                  <p className="text-white/50 font-light leading-relaxed text-sm">
-                    Campaign-ready lifestyle photograph in a bright, airy, and minimalist environment with warm and cozy neutrals.
-                  </p>
-                </button>
+                  <button
+                    onClick={() => handleModeSelect('beautifier')}
+                    className="group relative flex flex-col items-start p-8 glass-panel glass-panel-hover rounded-3xl transition-all duration-500 text-left overflow-hidden"
+                  >
+                    <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
+                    <div className="bg-white/5 border border-white/10 p-4 rounded-2xl mb-6 group-hover:scale-110 transition-transform duration-500">
+                      <Sparkle className="w-6 h-6 text-white/80" />
+                    </div>
+                    <h3 className="text-xl font-medium text-white/90 mb-3 tracking-wide">Product Beautifier</h3>
+                    <p className="text-white/50 font-light leading-relaxed text-sm">
+                      High-end photorealistic commercial rendering on polished Calacatta marble with luxurious studio lighting.
+                    </p>
+                    <p className="mt-4 h-5 text-sm font-medium text-[#D4AF37] drop-shadow-[0_0_10px_rgba(212,175,55,0.8)]">
+                      Clean Environment
+                    </p>
+                  </button>
 
-                <button
-                  onClick={() => handleModeSelect('beautifier')}
-                  className="group relative flex flex-col items-start p-8 glass-panel glass-panel-hover rounded-3xl transition-all duration-500 text-left overflow-hidden"
-                >
-                  <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
-                  <div className="bg-white/5 border border-white/10 p-4 rounded-2xl mb-6 group-hover:scale-110 transition-transform duration-500">
-                    <Sparkle className="w-6 h-6 text-white/80" />
-                  </div>
-                  <h3 className="text-xl font-medium text-white/90 mb-3 tracking-wide">Product Beautifier</h3>
-                  <p className="text-white/50 font-light leading-relaxed text-sm">
-                    High-end photorealistic commercial rendering on polished Calacatta marble with luxurious studio lighting.
-                  </p>
-                </button>
+                  <button
+                    onClick={() => handleModeSelect('color_change')}
+                    className="group relative flex flex-col items-start p-8 glass-panel glass-panel-hover rounded-3xl transition-all duration-500 text-left overflow-hidden"
+                  >
+                    <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
+                    <div className="bg-white/5 border border-white/10 p-4 rounded-2xl mb-6 group-hover:scale-110 transition-transform duration-500">
+                      <Palette className="w-6 h-6 text-white/80" />
+                    </div>
+                    <h3 className="text-xl font-medium text-white/90 mb-3 tracking-wide">Product Color Change</h3>
+                    <p className="text-white/50 font-light leading-relaxed text-sm">
+                      High-precision masked recolor of specific objects, preserving textures, reflections, and realism.
+                    </p>
+                    <p className="mt-4 h-5 text-sm font-medium text-[#D4AF37] drop-shadow-[0_0_10px_rgba(212,175,55,0.8)]">
+                      Colorful Choices
+                    </p>
+                  </button>
+                </div>
+              </motion.div>
+            )}
 
-                <button
-                  onClick={() => handleModeSelect('color_change')}
-                  className="group relative flex flex-col items-start p-8 glass-panel glass-panel-hover rounded-3xl transition-all duration-500 text-left overflow-hidden"
-                >
-                  <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
-                  <div className="bg-white/5 border border-white/10 p-4 rounded-2xl mb-6 group-hover:scale-110 transition-transform duration-500">
-                    <Palette className="w-6 h-6 text-white/80" />
-                  </div>
-                  <h3 className="text-xl font-medium text-white/90 mb-3 tracking-wide">Product Color Change</h3>
-                  <p className="text-white/50 font-light leading-relaxed text-sm">
-                    High-precision masked recolor of specific objects, preserving textures, reflections, and realism.
-                  </p>
-                </button>
-              </div>
-            </motion.div>
-          )}
+            {appState === 'uploading_image' && (
+              <motion.div
+                key="upload"
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.95 }}
+                className="flex flex-col items-center text-center max-w-3xl mx-auto"
+              >
+                <h2 className="text-4xl md:text-5xl font-serif font-light tracking-tight text-white mb-4">
+                  Upload your product
+                </h2>
+                <p className="text-white/50 mb-12 font-light tracking-wide">
+                  Provide a clear image of your product to apply the selected style.
+                </p>
+                
+                <ImageUploader onImageSelect={handleImageSelect} />
+              </motion.div>
+            )}
 
           {appState === 'configuring_color_change' && originalImage && (
             <ProductColorChangePanel 
@@ -493,7 +589,8 @@ Constraints:
               </button>
             </motion.div>
           )}
-        </AnimatePresence>
+          </AnimatePresence>
+        )}
       </main>
     </div>
   );

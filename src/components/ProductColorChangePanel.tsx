@@ -63,44 +63,21 @@ const COLOR_GROUPS = [
       { name: 'Steel', hex: '#434B4D', isMetallic: true },
     ]
   },
-  {
-    name: 'Brushed Metals',
-    colors: [
-      { name: 'Brushed Gold', hex: '#D4AF37', isMetallic: true, isBrushed: true },
-      { name: 'Brushed Silver', hex: '#C0C0C0', isMetallic: true, isBrushed: true },
-      { name: 'Brushed Copper', hex: '#B87333', isMetallic: true, isBrushed: true },
-      { name: 'Brushed Bronze', hex: '#CD7F32', isMetallic: true, isBrushed: true },
-      { name: 'Brushed Steel', hex: '#434B4D', isMetallic: true, isBrushed: true },
-      { name: 'Brushed Titanium', hex: '#878681', isMetallic: true, isBrushed: true },
-    ]
-  },
-  {
-    name: 'Specialty Finishes',
-    colors: [
-      { name: 'Pearl White', hex: '#F0EAD6', isPearl: true },
-      { name: 'Champagne Gold', hex: '#F7E7CE', isMetallic: true },
-      { name: 'Satin Black', hex: '#1A1A1A', isSatin: true },
-      { name: 'Satin Ivory', hex: '#FFFFF0', isSatin: true },
-      { name: 'Soft Bronze', hex: '#CD7F32', isSatin: true },
-    ]
-  }
 ];
 
 const FINISHES = [
-  'Matte',
+  'Default',
   'Glossy',
-  'Satin',
   'Metallic',
-  'Brushed Metal',
-  'Pearl',
-  'Soft Touch'
+  'Brushed Metal'
 ];
 
 export function ProductColorChangePanel({ originalImage, onGenerate, onCancel }: ProductColorChangePanelProps) {
   const [targetObject, setTargetObject] = useState('');
   const [currentColor, setCurrentColor] = useState('');
   const [newColor, setNewColor] = useState('');
-  const [finish, setFinish] = useState('Matte');
+  const [finish, setFinish] = useState('Default');
+  const [activeColorGroup, setActiveColorGroup] = useState(COLOR_GROUPS[0].name);
   
   const [suggestedObjects, setSuggestedObjects] = useState<ImagePart[]>([]);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -268,104 +245,102 @@ export function ProductColorChangePanel({ originalImage, onGenerate, onCancel }:
           </div>
         </div>
 
-        <div className="space-y-4">
-          <label className="text-xs font-medium tracking-[0.1em] uppercase text-white/60">
-            Material Finish
-          </label>
-          <div className="flex flex-wrap gap-2">
-            {FINISHES.map((f) => (
-              <button
-                key={f}
-                type="button"
-                onClick={() => setFinish(f)}
-                className={`px-4 py-2 rounded-full text-xs font-medium transition-all duration-300 border ${
-                  finish === f
-                    ? 'bg-white text-black border-white'
-                    : 'bg-white/5 text-white/70 border-white/10 hover:bg-white/10 hover:text-white'
-                }`}
-              >
-                {f}
-              </button>
-            ))}
+        <div className="space-y-6">
+          <div className="space-y-4">
+            <label className="text-xs font-medium tracking-[0.1em] uppercase text-white/60">
+              Material Finish <span className="text-red-400">*</span>
+            </label>
+            <div className="flex flex-wrap gap-2">
+              {FINISHES.map((f) => (
+                <button
+                  key={f}
+                  type="button"
+                  onClick={() => setFinish(f)}
+                  className={`px-4 py-2 rounded-full text-xs font-medium transition-all duration-300 border ${
+                    finish === f
+                      ? 'bg-white text-black border-white'
+                      : 'bg-white/5 text-white/70 border-white/10 hover:bg-white/10 hover:text-white'
+                  }`}
+                >
+                  {f}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="space-y-4">
+            {/* Color Group Tabs */}
+            <div className="flex space-x-2 overflow-x-auto pb-2 custom-scrollbar">
+              {COLOR_GROUPS.map((group) => (
+                <button
+                  key={group.name}
+                  type="button"
+                  onClick={() => setActiveColorGroup(group.name)}
+                  className={`whitespace-nowrap px-4 py-2 rounded-full text-xs font-medium transition-all duration-300 border ${
+                    activeColorGroup === group.name
+                      ? 'bg-white text-black border-white shadow-[0_0_10px_rgba(255,255,255,0.3)]'
+                      : 'bg-white/5 text-white/70 border-white/10 hover:bg-white/10 hover:text-white'
+                  }`}
+                >
+                  {group.name}
+                </button>
+              ))}
+            </div>
+
+            {/* Active Group Colors Grid */}
+            <div className="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 gap-3 pt-2 max-h-[30vh] overflow-y-auto pr-2 custom-scrollbar">
+              {COLOR_GROUPS.find(g => g.name === activeColorGroup)?.colors.map((color) => {
+                const isSelected = newColor === color.name;
+                
+                // Determine visual style based on selected finish, overriding intrinsic color properties
+                const isVisuallyMetallic = finish === 'Metallic' || (finish === 'Default' && color.isMetallic && !color.isBrushed);
+                const isVisuallyBrushed = finish === 'Brushed Metal' || (finish === 'Default' && color.isBrushed);
+                const isVisuallyGlossy = finish === 'Glossy';
+
+                let backgroundStyle = 'none';
+                if (isVisuallyBrushed) {
+                  backgroundStyle = 'linear-gradient(45deg, rgba(255,255,255,0.15) 25%, transparent 25%, transparent 50%, rgba(255,255,255,0.15) 50%, rgba(255,255,255,0.15) 75%, transparent 75%, transparent), linear-gradient(135deg, rgba(255,255,255,0.4) 0%, transparent 50%, rgba(0,0,0,0.2) 100%)';
+                } else if (isVisuallyMetallic) {
+                  backgroundStyle = 'linear-gradient(135deg, rgba(255,255,255,0.5) 0%, transparent 45%, rgba(0,0,0,0.3) 100%)';
+                } else if (isVisuallyGlossy) {
+                  backgroundStyle = 'linear-gradient(135deg, rgba(255,255,255,0.6) 0%, transparent 30%, transparent 100%)';
+                }
+
+              return (
+                <button
+                  key={color.name}
+                  type="button"
+                  onClick={() => setNewColor(color.name)}
+                  className={`group relative flex flex-col items-center p-2 rounded-xl border transition-all duration-300 ${
+                    isSelected 
+                      ? 'bg-white/10 border-white/40 shadow-[0_0_15px_rgba(255,255,255,0.1)]' 
+                      : 'bg-white/5 border-white/5 hover:bg-white/10 hover:border-white/20'
+                  }`}
+                >
+                  <div 
+                    className={`w-10 h-10 rounded-full mb-2 shadow-inner relative overflow-hidden ${
+                      isVisuallyMetallic || isVisuallyBrushed ? 'ring-1 ring-white/20' : ''
+                    }`}
+                    style={{ 
+                      backgroundColor: color.hex,
+                      backgroundImage: backgroundStyle,
+                      backgroundSize: isVisuallyBrushed ? '4px 4px, auto' : 'auto'
+                    }}
+                  >
+                    {isSelected && (
+                      <div className="absolute inset-0 flex items-center justify-center bg-black/20">
+                        <Check className="w-5 h-5 text-white drop-shadow-md" />
+                      </div>
+                    )}
+                  </div>
+                  <span className="text-[10px] text-center text-white/70 group-hover:text-white/90 leading-tight">
+                    {color.name}
+                  </span>
+                </button>
+              );
+            })}
           </div>
         </div>
-
-        <div className="space-y-4">
-          <label className="text-xs font-medium tracking-[0.1em] uppercase text-white/60">
-            New Color <span className="text-red-400">*</span>
-          </label>
-          <div className="space-y-8 max-h-[40vh] overflow-y-auto pr-2 custom-scrollbar">
-            {COLOR_GROUPS.map((group) => (
-              <div key={group.name} className="space-y-3">
-                <h3 className="text-sm font-medium text-white/80 border-b border-white/10 pb-2">
-                  {group.name}
-                </h3>
-                <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 gap-3">
-                  {group.colors.map((color) => {
-                    const isSelected = newColor === color.name;
-                    
-                    // Determine visual style based on selected finish, overriding intrinsic color properties
-                    const isVisuallyMetallic = finish === 'Metallic' || (finish === 'Matte' && color.isMetallic && !color.isBrushed);
-                    const isVisuallyBrushed = finish === 'Brushed Metal' || (finish === 'Matte' && color.isBrushed);
-                    const isVisuallyPearl = finish === 'Pearl' || (finish === 'Matte' && color.isPearl);
-                    const isVisuallyGlossy = finish === 'Glossy';
-                    const isVisuallySatin = finish === 'Satin' || (finish === 'Matte' && color.isSatin);
-
-                    let backgroundStyle = 'none';
-                    if (isVisuallyBrushed) {
-                      backgroundStyle = 'linear-gradient(45deg, rgba(255,255,255,0.15) 25%, transparent 25%, transparent 50%, rgba(255,255,255,0.15) 50%, rgba(255,255,255,0.15) 75%, transparent 75%, transparent), linear-gradient(135deg, rgba(255,255,255,0.4) 0%, transparent 50%, rgba(0,0,0,0.2) 100%)';
-                    } else if (isVisuallyMetallic) {
-                      backgroundStyle = 'linear-gradient(135deg, rgba(255,255,255,0.5) 0%, transparent 45%, rgba(0,0,0,0.3) 100%)';
-                    } else if (isVisuallyGlossy) {
-                      backgroundStyle = 'linear-gradient(135deg, rgba(255,255,255,0.6) 0%, transparent 30%, transparent 100%)';
-                    } else if (isVisuallyPearl) {
-                      backgroundStyle = 'radial-gradient(circle at 30% 30%, rgba(255,255,255,0.8) 0%, transparent 60%)';
-                    } else if (isVisuallySatin) {
-                      backgroundStyle = 'linear-gradient(135deg, rgba(255,255,255,0.2) 0%, transparent 50%, rgba(0,0,0,0.1) 100%)';
-                    }
-
-                    return (
-                      <button
-                        key={color.name}
-                        type="button"
-                        onClick={() => {
-                          setNewColor(color.name);
-                          // We no longer auto-switch the finish when a color is clicked, 
-                          // because the finish now drives the visual style of the color.
-                          // If the user wants a metallic red, they select "Metallic" finish and "Red" color.
-                        }}
-                        className={`group relative flex flex-col items-center p-2 rounded-xl border transition-all duration-300 ${
-                          isSelected 
-                            ? 'bg-white/10 border-white/40 shadow-[0_0_15px_rgba(255,255,255,0.1)]' 
-                            : 'bg-white/5 border-white/5 hover:bg-white/10 hover:border-white/20'
-                        }`}
-                      >
-                        <div 
-                          className={`w-10 h-10 rounded-full mb-2 shadow-inner relative overflow-hidden ${
-                            isVisuallyMetallic || isVisuallyBrushed ? 'ring-1 ring-white/20' : ''
-                          }`}
-                          style={{ 
-                            backgroundColor: color.hex,
-                            backgroundImage: backgroundStyle,
-                            backgroundSize: isVisuallyBrushed ? '4px 4px, auto' : 'auto'
-                          }}
-                        >
-                          {isSelected && (
-                            <div className="absolute inset-0 flex items-center justify-center bg-black/20">
-                              <Check className="w-5 h-5 text-white drop-shadow-md" />
-                            </div>
-                          )}
-                        </div>
-                        <span className="text-[10px] text-center text-white/70 group-hover:text-white/90 leading-tight">
-                          {color.name}
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            ))}
-          </div>
         </div>
 
         <div className="pt-6 border-t border-white/10 flex justify-end space-x-4">
